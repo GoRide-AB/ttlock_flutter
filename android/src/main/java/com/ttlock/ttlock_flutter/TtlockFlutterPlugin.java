@@ -3,6 +3,8 @@ package com.ttlock.ttlock_flutter;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothManager;
+import android.os.Build;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
 import android.os.Handler;
@@ -11,6 +13,8 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.location.LocationManager;
 import android.content.Context;
+import android.content.Intent;
+import android.app.ActivityManager;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -209,6 +213,7 @@ import com.ttlock.ttlock_flutter.model.TtlockModel;
 import com.ttlock.ttlock_flutter.model.WaterMeterErrorConvert;
 import com.ttlock.ttlock_flutter.util.PermissionUtils;
 import com.ttlock.ttlock_flutter.util.Utils;
+import com.ttlock.bl.sdk.constant.ControlAction;
 
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
@@ -237,7 +242,12 @@ import com.ttlock.bl.sdk.entity.LockData;
  * scan results and command callbacks.
  */
 public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, ActivityAware, EventChannel.StreamHandler {
+  public TtlockFlutterPlugin() {
+    Log.e("TtlockFlutterPlugin", "🚀 PLUGIN CONSTRUCTOR CALLED - Plugin is loading");
+  }
   private static final int PERMISSIONS_REQUEST_CODE = 0;
+  private static boolean sdkInitialized = false;
+  private Context applicationContext;
   private MethodChannel channel;
   private EventChannel eventChannel;
   private static Activity activity;
@@ -261,7 +271,6 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
   public static final int ResultStateSuccess = 0;
   public static final int ResultStateProgress = 1;
   public static final int ResultStateFail = 2;
-
   private int commandType;
 
   /**
@@ -314,24 +323,36 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
   // THIS IS THE CORRECTED onMethodCall FUNCTION
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
+    Log.e("TtlockFlutterPlugin", "🔥 PLUGIN IS RUNNING - Method: " + call.method);
+    Log.d("TtlockFlutterPlugin", "=== onMethodCall called, method: " + call.method + ", sdkIsInit: " + sdkIsInit);
+    
+    // Auto-initialize SDK on first method call (TTLock V3 pattern)
+    if (!sdkInitialized && activity != null) {
+        Log.d("TtlockFlutterPlugin", "=== Auto-initializing SDK for method: " + call.method);
+        if (!ensureSDKInitialized()) {
+            Log.e("TtlockFlutterPlugin", "=== SDK initialization failed for method: " + call.method);
+            result.error("0x405", "SDK initialization failed - bluetooth may be disabled", null);
+            return;
+        }
+    }
+    
     if (call.method.equals("getLockTimeDirect")) {
+        Log.d("TtlockFlutterPlugin", "Starting getLockTimeDirect execution");
         String lockData = call.argument("lockData");
         String lockMac = call.argument("lockMac");
 
         TTLockClient.getDefault().getLockTime(lockData, lockMac, new GetLockTimeCallback() {
             @Override
             public void onGetLockTimeSuccess(long lockTime) {
-                // Success: send the time back to Flutter
                 result.success(String.valueOf(lockTime));
             }
 
             @Override
             public void onFail(LockError error) {
-                // Fail: send the error code and message back to Flutter
                 result.error(String.valueOf(error.getErrorCode()), error.getErrorMsg(), null);
             }
         });
-        return; // Exit here
+        return;
     }
     if (call.method.equals("isLocationEnabled")) {
         // We now correctly use the 'activity' variable, which is a valid Context
@@ -354,7 +375,7 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
     // This is the original logic from the package that handles all other commands.
     // It remains unchanged.
     if (!sdkIsInit) {
-        initSdk();
+        ensureSDKInitialized();
     }
     
     if (GatewayCommand.isGatewayCommand(call.method)) {//gateway
@@ -383,16 +404,22 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
     }
 }
 
-  private void initSdk() {
-    TTLockClient.getDefault().prepareBTService(activity);
-    GatewayClient.getDefault().prepareBTService(activity);
-    RemoteClient.getDefault().prepareBTService(activity);
-    WirelessKeypadClient.getDefault().prepareBTService(activity);
-    MultifunctionalKeypadClient.getDefault().prepareBTService(activity);
-    WirelessDoorSensorClient.getDefault().prepareBTService(activity);
-    ElectricMeterClient.getDefault().prepareBTService(activity);
-    WaterMeterClient.getDefault().prepareBTService(activity);
-  }
+private boolean ensureSDKInitialized() {
+    if (sdkInitialized) {
+        return true;
+    }
+    
+    if (activity == null) {
+        Log.e("TtlockFlutterPlugin", "Activity is null");
+        return false;
+    }
+    
+    TTLockClient.getDefault().prepareBTService(activity.getApplicationContext());
+    sdkInitialized = true;
+    sdkIsInit = true;
+    Log.d("TtlockFlutterPlugin", "SDK initialized");
+    return true;
+}
 
   public void doorLockCommand(MethodCall call) {
     Object arguments = call.arguments;
@@ -414,6 +441,40 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
           startScan();
 //        }
         break;
+case "controlLockWithMac":
+    Log.d("TtlockFlutterPlugin", "=== controlLockWithMac case triggered");
+    
+    // Extract parameters manually to ensure proper mapping
+    // Use different variable names to avoid conflicts with existing variables
+    Object callArguments = call.arguments;
+    if (callArguments instanceof Map) {
+        Map<String, Object> params = (Map<String, Object>) callArguments;
+        
+        // Extract each parameter explicitly
+        String lockData = (String) params.get("lockData");
+        String lockMac = (String) params.get("lockMac");
+        Integer controlAction = (Integer) params.get("controlAction");
+        
+        Log.d("TtlockFlutterPlugin", "=== Extracted parameters:");
+        Log.d("TtlockFlutterPlugin", "    lockData: " + (lockData != null ? "length " + lockData.length() : "null"));
+        Log.d("TtlockFlutterPlugin", "    lockMac: " + lockMac);
+        Log.d("TtlockFlutterPlugin", "    controlAction: " + controlAction);
+        
+        // Create fresh TtlockModel and populate it
+        // Use different variable name to avoid conflict
+        TtlockModel macLockModel = new TtlockModel();
+        macLockModel.lockData = lockData;
+        macLockModel.lockMac = lockMac;
+        macLockModel.controlAction = controlAction != null ? controlAction : TtlockModel.CONTROL_ACTION_UNLOCK;
+        
+        // Call the method
+        controlLockWithMac(macLockModel);
+    } else {
+        Log.e("TtlockFlutterPlugin", "=== controlLockWithMac: arguments is not a Map, type: " + 
+              (callArguments != null ? callArguments.getClass().getSimpleName() : "null"));
+        apiFail(LockError.DATA_FORMAT_ERROR);
+    }
+    break;
       case TTLockCommand.COMMAND_STOP_SCAN_LOCK:
         stopScan();
         break;
@@ -430,7 +491,93 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
         break;
     }
   }
+public void controlLockWithMac(final TtlockModel ttlockModel) {
+    Log.d("TtlockFlutterPlugin", "=== controlLockWithMac EMERGENCY FIX ===");
+    Log.d("TtlockFlutterPlugin", "lockData length: " + ttlockModel.lockData.length());
+    Log.d("TtlockFlutterPlugin", "lockMac: " + ttlockModel.lockMac);
+    Log.d("TtlockFlutterPlugin", "controlAction input: " + ttlockModel.controlAction);
+    
+    // FORCE reinitialize SDK every time (emergency fix)
+    try {
+        TTLockClient.getDefault().prepareBTService(activity.getApplicationContext());
+        Thread.sleep(100); // Small delay for initialization
+    } catch (Exception e) {
+        Log.e("TtlockFlutterPlugin", "Failed to prepare BT service: " + e.getMessage());
+    }
+    
+    // Check Bluetooth state after initialization
+    boolean bleEnabled = TTLockClient.getDefault().isBLEEnabled(activity);
+    Log.d("TtlockFlutterPlugin", "=== BLE enabled after init: " + bleEnabled);
+    
+    if (!bleEnabled) {
+        // Try one more time with regular activity context
+        TTLockClient.getDefault().prepareBTService(activity);
+        try {
+            Thread.sleep(100);
+        } catch (Exception e) {}
+        bleEnabled = TTLockClient.getDefault().isBLEEnabled(activity);
+        Log.d("TtlockFlutterPlugin", "=== BLE enabled after second init: " + bleEnabled);
+    }
+    
+    // FIX: Correct the control action mapping
+    // In Flutter: 0 = unlock, 1 = lock
+    // In SDK: UNLOCK = 1, LOCK = 2
+    int controlAction;
+    if (ttlockModel.controlAction == 0) {
+        controlAction = 1; // ControlAction.UNLOCK
+        Log.d("TtlockFlutterPlugin", "Flutter sent 0, using SDK UNLOCK (1)");
+    } else {
+        controlAction = 2; // ControlAction.LOCK  
+        Log.d("TtlockFlutterPlugin", "Flutter sent 1, using SDK LOCK (2)");
+    }
+    
+    Log.d("TtlockFlutterPlugin", "=== Final ControlAction for SDK: " + controlAction);
+    
+    // Direct call without checking BLE state (let SDK handle it)
+    TTLockClient.getDefault().controlLock(
+        controlAction,
+        ttlockModel.lockData, 
+        ttlockModel.lockMac,
+        new ControlLockCallback() {
+            @Override
+            public void onControlLockSuccess(ControlLockResult controlLockResult) {
+                Log.d("TtlockFlutterPlugin", "=== Control lock SUCCESS!");
+                
+                HashMap<String, Object> resultMap = new HashMap<>();
+                resultMap.put("lockTime", controlLockResult.lockTime);
+                resultMap.put("electricQuantity", controlLockResult.battery);
+                resultMap.put("uniqueId", controlLockResult.uniqueid);
+                resultMap.put("controlAction", controlLockResult.controlAction);
+                
+                successCallbackCommand(TTLockCommand.COMMAND_CONTROL_LOCK, resultMap);
+            }
 
+            @Override
+            public void onFail(LockError lockError) {
+                Log.e("TtlockFlutterPlugin", "=== Control lock FAILED: " + lockError.getErrorCode() + " - " + lockError.getDescription());
+                
+                // If BLE_SERVER_NOT_INIT, log more details
+                if (lockError == LockError.BLE_SERVER_NOT_INIT) {
+                    Log.e("TtlockFlutterPlugin", "BLE_SERVER_NOT_INIT - Bluetooth state: " + 
+                          TTLockClient.getDefault().isBLEEnabled(activity));
+                    Log.e("TtlockFlutterPlugin", "Activity is null? " + (activity == null));
+                }
+                
+                errorCallbackCommand(TTLockCommand.COMMAND_CONTROL_LOCK, lockError);
+            }
+        }
+    );
+}
+  public void checkSDKState() {
+    Log.d("TtlockFlutterPlugin", "=== SDK STATE CHECK ===");
+    Log.d("TtlockFlutterPlugin", "sdkInitialized: " + sdkInitialized);
+    Log.d("TtlockFlutterPlugin", "sdkIsInit: " + sdkIsInit);
+    Log.d("TtlockFlutterPlugin", "activity: " + (activity != null ? "EXISTS" : "NULL"));
+    Log.d("TtlockFlutterPlugin", "BLE enabled: " + (activity != null ? TTLockClient.getDefault().isBLEEnabled(activity) : "N/A"));
+    
+    BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+    Log.d("TtlockFlutterPlugin", "System Bluetooth: " + (adapter != null && adapter.isEnabled() ? "ON" : "OFF"));
+}
   public void gatewayCommand(MethodCall call) {
     String command = call.method;
     gatewayModel.toObject((Map<String, Object>) call.arguments);
@@ -460,6 +607,50 @@ public class TtlockFlutterPlugin implements FlutterPlugin, MethodCallHandler, Ac
         break;
     }
   }
+  private void ensureSDKInitializedWithDelay(Runnable onComplete) {
+    if (sdkInitialized && TTLockClient.getDefault().isBLEEnabled(activity)) {
+        Log.d("TtlockFlutterPlugin", "=== SDK already initialized and BLE ready");
+        if (onComplete != null) onComplete.run();
+        return;
+    }
+    
+    Log.d("TtlockFlutterPlugin", "=== Initializing SDK with delay for BLE service");
+    
+    if (activity == null) {
+        Log.e("TtlockFlutterPlugin", "=== Cannot initialize SDK: activity is null");
+        return;
+    }
+    
+    BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+    if (adapter == null || !adapter.isEnabled()) {
+        Log.e("TtlockFlutterPlugin", "=== Cannot initialize SDK: Bluetooth not available or disabled");
+        return;
+    }
+    
+    try {
+        // Initialize all clients
+        TTLockClient.getDefault().prepareBTService(activity);
+        GatewayClient.getDefault().prepareBTService(activity);
+        RemoteClient.getDefault().prepareBTService(activity);
+        WirelessKeypadClient.getDefault().prepareBTService(activity);
+        MultifunctionalKeypadClient.getDefault().prepareBTService(activity);
+        WirelessDoorSensorClient.getDefault().prepareBTService(activity);
+        ElectricMeterClient.getDefault().prepareBTService(activity);
+        WaterMeterClient.getDefault().prepareBTService(activity);
+        
+        sdkInitialized = true;
+        sdkIsInit = true;
+        
+        // Add a small delay to ensure BLE service is ready
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Log.d("TtlockFlutterPlugin", "=== BLE service should be ready now");
+            if (onComplete != null) onComplete.run();
+        }, 500); // 500ms delay
+        
+    } catch (Exception e) {
+        Log.e("TtlockFlutterPlugin", "=== SDK initialization failed: " + e.getMessage());
+    }
+}
 
   public void remoteCommand(MethodCall call) {
     String command = call.method;
@@ -4228,7 +4419,12 @@ private void startScan() {
   @Override
   public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
     activity = binding.getActivity();
-  }
+    // Use application context exactly like native test
+    TTLockClient.getDefault().prepareBTService(activity.getApplicationContext());
+    sdkInitialized = true;
+    sdkIsInit = true;
+    Log.d("TtlockFlutterPlugin", "SDK initialized with application context");
+}
 
   @Override
   public void onDetachedFromActivityForConfigChanges() {
@@ -4369,6 +4565,20 @@ private void startScan() {
       TTLockClient.getDefault().prepareBTService(activity);
       result.success(null);
   }
-  
+  /**
+ * Ensure TTLock is initialized before any operation
+ */
+private void ensureInitialized() {
+    Log.d("TtlockFlutterPlugin", "ensureInitialized called, sdkIsInit: " + sdkIsInit);
+    if (!sdkIsInit && activity != null) {
+        try {
+            ensureSDKInitialized();
+            sdkIsInit = true;
+            android.util.Log.d("TtlockFlutterPlugin", "TTLock SDK initialized successfully");
+        } catch (Exception e) {
+            android.util.Log.e("TtlockFlutterPlugin", "Failed to initialize TTLock SDK", e);
+        }
+    }
+}
 
 }
