@@ -3,12 +3,11 @@ version '1.0'
 
 buildscript {
     ext {
-        agp_version = '4.1.2'
+        agp_version = '8.8.0'
     }
     repositories {
         mavenCentral()
         google()
-        jcenter()
     }
 
     dependencies {
@@ -30,10 +29,11 @@ rootProject.allprojects {
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 31
+    compileSdkVersion 34
     namespace 'com.ttlock.ttlock_flutter'
     defaultConfig {
-        minSdkVersion 18
+        minSdkVersion 23
+        targetSdkVersion 34
     }
     lintOptions {
         disable 'InvalidPackage'
@@ -46,7 +46,7 @@ android {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation 'com.ttlock:ttlock:3.5.5'
+    implementation 'com.ttlock:ttlock:3.5.5' // used to be 3.5.5. 3.5.4 is from the Android SDK Demo.
     implementation 'com.google.code.gson:gson:2.6.2'
     // implementation(name: 'ttlock-release', ext: 'aar')
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

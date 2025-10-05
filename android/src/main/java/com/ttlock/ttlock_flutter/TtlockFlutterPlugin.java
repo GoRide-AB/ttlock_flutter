@@ -2368,21 +2368,60 @@ public void controlLockWithMac(final TtlockModel ttlockModel) {
   }
 
 private void startScan() {
+    LogUtil.d("startScan()");
         PermissionUtils.doWithScanPermission(activity, success -> {
+          LogUtil.d("doWithScanPermission(" + activity + ", " + success + ")");
+
             if (success) {
                 TTLockClient.getDefault().startScanLock(new ScanLockCallback() {
                     @Override
                     public void onScanLockSuccess(ExtendedBluetoothDevice extendedBluetoothDevice) {
-                        HashMap<String, Object> map = new HashMap<>();
+                      LogUtil.d("onScanLockSuccess(" + extendedBluetoothDevice + ")");
+
+
+                      HashMap<String, Object> map = new HashMap<>();
                         map.put("lockName", extendedBluetoothDevice.getName());
                         map.put("lockMac", extendedBluetoothDevice.getAddress());
                         map.put("rssi", extendedBluetoothDevice.getRssi());
-                        channel.invokeMethod("onScanLock", map);
+                        map.put("isAllowUnlock", true); // mikaelj
+                        map.put("isInited", false); // mikaelj
+                        map.put("electricQuantity", extendedBluetoothDevice.getBatteryCapacity());
+                        map.put("lockVersion", extendedBluetoothDevice.getLockVersionJson());
+                        map.put("lockSwitchState", 2); // mikaelj: 2 = TTLockSwitchState.unknown
+                        map.put("oneMeterRssi", extendedBluetoothDevice.getRssi()); // mikaelj
+                        map.put("timestamp", extendedBluetoothDevice.getDate());
+
+
+                        /// mikaelj
+                        // was
+                        //channel.invokeMethod("onScanLock", map);
+
+                        /*
+                         D/TtlockFlutterPlugin$45(25467): onScanLockSuccess(L:2379) - onScanLockSuccess(ExtendedBluetoothDevice{name='K102_a1c3b5', mAddress='F6:D1:8D:B5:C3:A1', rssi=-49, protocolType=5, protocolVersion=3, scene=2, groupId=0, orgId=0, lockType=5, isTouch=true, isSettingMode=true, isWristband=false, isUnlock=false, txPowerLevel=-70, batteryCapacity=100, date=1759664337882, device=F6:D1:8D:B5:C3:A1, scanRecord=[02,01,06,02,0a,ba,03,02,10,19,12,ff,05,03,02,1c,64,b0,00,f4,f9,53,65,a1,c3,b5,8d,d1,f6,0c,09,4b,31,30,32,5f,61,31,63,33,62,35,05,12,14,00,24,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00]})
+I/flutter (25467): TTLock listen: {data: {rssi: -49, lockMac: F6:D1:8D:B5:C3:A1, lockName: K102_a1c3b5}, resultState: 0, errorMessage: , errorCode: 0, command: startScanLock}
+E/flutter (25467): [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: type 'Null' is not a subtype of type 'bool'
+E/flutter (25467): #0      new TTLockScanModel (package:ttlock_flutter/ttlock.dart:2444:10)
+E/flutter (25467): #1      TTLock._successCallback (package:ttlock_flutter/ttlock.dart:1783:22)
+E/flutter (25467): #2      TTLock._onEvent (package:ttlock_flutter/ttlock.dart:2181:7)
+E/flutter (25467): #3      _RootZone.runUnaryGuarded (dart:async/zone.dart:1778:10)
+E/flutter (25467): #4      _BufferingStreamSubscription._sendData (dart:async/stream_impl.dart:381:11)
+E/flutter (25467): #5      _DelayedData.perform (dart:async/stream_impl.dart:573:14)
+E/flutter (25467): #6      _PendingEvents.handleNext (dart:async/stream_impl.dart:678:11)
+E/flutter (25467): #7      _PendingEvents.schedule.<anonymous closure> (dart:async/stream_impl.dart:649:7)
+E/flutter (25467): #8      _microtaskLoop (dart:async/schedule_microtask.dart:40:35)
+E/flutter (25467): #9      _startMicrotaskLoop (dart:async/schedule_microtask.dart:49:5)
+E/flutter (25467): 
+Lost connection to device.
+                         */
+                        //callbackCommand(TTLockCommand.COMMAND_START_SCAN_LOCK, ResultStateSuccess, map, 0, ""); 
+                        successCallbackCommand(TTLockCommand.COMMAND_START_SCAN_LOCK, map);
                     }
 
                     @Override
                     public void onFail(LockError error) {
                         // The onFail method is also required by the "contract".
+                      LogUtil.d("onScanLockFail(" + error + ")");
+                      errorCallbackCommand(TTLockCommand.COMMAND_START_SCAN_LOCK, error);
                     }
                 });
             }
